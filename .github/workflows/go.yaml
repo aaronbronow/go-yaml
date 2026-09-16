@@ -171,11 +171,27 @@ jobs:
       if: always()
       run: |
         python3 - << 'EOF'
-        import os, textwrap
+        import json, os, textwrap
 
         bin_hash = os.popen('sha256sum ./go-yaml 2>/dev/null').read().split()[0] if os.path.exists('./go-yaml') else 'N/A'
-        sbom = open('sbom.spdx.json').read() if os.path.exists('sbom.spdx.json') else '{"error": "sbom.spdx.json not found"}'
-        attest = open('attestation.json').read() if os.path.exists('attestation.json') else '{"error": "attestation.json not found"}'
+
+        try:
+            with open('sbom.spdx.json') as f:
+                sbom = json.dumps(json.load(f), indent=2)
+        except Exception as e:
+            sbom = f'{{"error": "{e}"}}'
+
+        try:
+            with open('attestation.json') as f:
+                attest_obj = json.load(f)
+                if isinstance(attest_obj.get('predicate'), str):
+                    try:
+                        attest_obj['predicate'] = json.loads(attest_obj['predicate'])
+                    except Exception:
+                        pass
+                attest = json.dumps(attest_obj, indent=2)
+        except Exception as e:
+            attest = f'{{"error": "{e}"}}'
 
         summary = textwrap.dedent(f"""
         # 🛡️ Supply Chain Security & SLSA Build Level 2 Summary
