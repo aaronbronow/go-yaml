@@ -166,3 +166,57 @@ jobs:
           sbom.spdx.json
           attestation.json
         if-no-files-found: ignore
+
+    - name: Generate Job Summary
+      if: always()
+      run: |
+        python3 - << 'EOF'
+        import os, textwrap
+
+        bin_hash = os.popen('sha256sum ./go-yaml 2>/dev/null').read().split()[0] if os.path.exists('./go-yaml') else 'N/A'
+        sbom = open('sbom.spdx.json').read() if os.path.exists('sbom.spdx.json') else '{"error": "sbom.spdx.json not found"}'
+        attest = open('attestation.json').read() if os.path.exists('attestation.json') else '{"error": "attestation.json not found"}'
+
+        summary = textwrap.dedent(f"""
+        # 🛡️ Supply Chain Security & SLSA Build Level 2 Summary
+
+        ### 📦 Build & Release Artifacts
+        | Component | Details |
+        | :--- | :--- |
+        | **Artifact Binary** | `go-yaml` |
+        | **Binary SHA-256** | `{bin_hash}` |
+        | **Target Image** | `ghcr.io/aaronbronow/go-yaml:v4.0.0-rc.6` |
+        | **SBOM Standard** | SPDX 2.3 JSON (via Syft) |
+        | **Attestation Spec** | in-toto v0.1 Statement (via Cosign) |
+        | **SLSA Compliance** | Build Level 2 Candidate |
+
+        ---
+
+        ### 📋 Software Bill of Materials (`sbom.spdx.json`)
+        <details>
+        <summary><b>Click to expand full SPDX-2.3 SBOM JSON</b></summary>
+
+        ```json
+        {sbom}
+        ```
+
+        </details>
+
+        ---
+
+        ### 🔏 In-Toto Attestation Envelope (`attestation.json`)
+        <details>
+        <summary><b>Click to expand full in-toto Attestation JSON</b></summary>
+
+        ```json
+        {attest}
+        ```
+
+        </details>
+        """).strip()
+
+        summary_file = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_file:
+            with open(summary_file, 'a') as f:
+                f.write(summary + '\n')
+        EOF
