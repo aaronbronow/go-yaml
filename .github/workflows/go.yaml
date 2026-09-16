@@ -9,7 +9,10 @@ on:
   pull_request:
     branches: [ main, v3, v2, v1 ]
 
-permissions: read-all
+permissions:
+  contents: read
+  packages: write
+  id-token: write
 
 jobs:
   test:
@@ -28,6 +31,71 @@ jobs:
 
     - name: Run all unit tests w/ -cover, all YTS tests and go lint
       run: make test lint v=1 cover=1 GO-VERSION=${{ matrix.go-version }}
+
+    - name: Generate SBOM with Syft
+      continue-on-error: true
+      run: make sbom
+
+    - name: Build CLI binary
+      run: make cli GO-VERSION=${{ matrix.go-version }}
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@d7d6bc7722e3dedc6edbc0ea725da64afd1adc04  # v3.8.1
+
+    - name: Attest build artifact with Cosign
+      env:
+        GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+        IMAGE_NAME: ghcr.io/aaronbronow/go-yaml:v4.0.0-rc.6
+      run: |
+        if [ "${GITHUB_REF_TYPE:-}" = 'tag' ]; then
+          IMAGE_NAME="ghcr.io/aaronbronow/go-yaml:${GITHUB_REF_NAME}"
+        fi
+        echo "Target attestation image: $IMAGE_NAME"
+        echo 'Checking GHCR credentials for remote image attestation...'
+        AUTHENTICATED=false
+        if [ -n "$GHCR_TOKEN" ]; then
+          if echo "$GHCR_TOKEN" | docker login ghcr.io -u aaronbronow --password-stdin 2>/dev/null; then
+            AUTHENTICATED=true
+          fi
+        fi
+
+        if [ "$AUTHENTICATED" = 'true' ]; then
+          echo "GHCR credentials verified. Attesting $IMAGE_NAME with SPDX SBOM predicate..."
+          cosign attest --yes --predicate sbom.spdx.json --type spdx "$IMAGE_NAME" || {
+            echo '::warning::Remote image attestation failed. Falling back to offline dry-run attestation.'
+            AUTHENTICATED=false
+          }
+        fi
+
+        if [ "$AUTHENTICATED" != 'true' ]; then
+          echo '::warning::GHCR credentials not configured or remote image not found. Running offline dry-run attestation.'
+          echo 'Generating offline in-toto attestation bundle for go-yaml CLI binary...'
+          COSIGN_PASSWORD='' cosign generate-key-pair
+          export COSIGN_PASSWORD=''
+          cosign attest-blob \
+            --yes \
+            --key cosign.key \
+            --predicate sbom.spdx.json \
+            --type spdx \
+            --output-attestation attestation.json \
+            ./go-yaml
+
+          echo '=== OFFLINE IN-TOTO ATTESTATION DUMP ==='
+          jq . attestation.json 2>/dev/null || cat attestation.json
+          echo '========================================'
+          rm -f cosign.key cosign.pub
+        fi
+
+    - name: Upload SBOM and Attestation artifacts
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+      with:
+        name: sbom-and-attestation-${{ matrix.go-version }}
+        path: |
+          sbom.spdx.json
+          attestation.json
+        if-no-files-found: ignore
 
   test-cross-platform:
     name: Test on ${{ matrix.GOOS }}/${{ matrix.GOARCH }}

@@ -64,11 +64,14 @@ else
 SHELL-DEPS := $(filter-out $(GO),$(SHELL-DEPS))
 endif
 
+SYFT := $(shell which syft 2>/dev/null || echo $(LOCAL-BIN)/syft)
+SYFT-INSTALLER := https://raw.githubusercontent.com/anchore/syft/main/install.sh
+
 SHELL-NAME := makes go-yaml
 include $(MAKES)/clean.mk
 include $(MAKES)/shell.mk
 
-MAKES-CLEAN := $(CLI-BINARY) $(GOLANGCI-LINT)
+MAKES-CLEAN := $(CLI-BINARY) $(GOLANGCI-LINT) sbom.spdx.json attestation.json
 MAKES-REALCLEAN := $(dir $(YTS-DIR))
 
 SHELL-SCRIPTS = \
@@ -159,6 +162,14 @@ cli: $(CLI-BINARY)
 
 $(CLI-BINARY): $(GO)
 	go build -o $@ ./cmd/$@
+
+sbom: $(SYFT)
+	$(SYFT) dir:. --exclude './.cache/**' --exclude './yts/testdata/**' -o spdx-json=sbom.spdx.json
+	@echo 'SBOM generated: sbom.spdx.json'
+
+$(LOCAL-BIN)/syft:
+	@mkdir -p $(LOCAL-BIN)
+	curl -sSfL $(SYFT-INSTALLER) | sh -s -- -b $(LOCAL-BIN)
 
 run-examples: $(GO)
 	@for dir in example/*/; do \

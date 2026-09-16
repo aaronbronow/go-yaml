@@ -4,3 +4,7 @@
 /.cache/
 /yts/testdata/
 /go-yaml
+/sbom.spdx.json
+/attestation.json
+/cosign.key
+/cosign.pub
