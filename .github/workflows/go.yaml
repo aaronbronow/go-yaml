@@ -5,9 +5,10 @@ name: Go
 
 on:
   push:
-    branches: [ main, v3, v2, v1 ]
+    branches: [ main, v3, v2, v1, cra-demo ]
   pull_request:
     branches: [ main, v3, v2, v1 ]
+  workflow_dispatch:
 
 permissions:
   contents: read
